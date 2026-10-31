@@ -153,8 +153,15 @@ def read_references(root):
 
 def _process_recording(args):
     root, sub, rec, label = args
-    path = os.path.join(root, sub, rec + ".wav")
-    fs, x = wavfile.read(path)
+    wav_path = os.path.join(root, sub, rec + ".wav")
+    dat_path = os.path.join(root, sub, rec + ".dat")
+    if os.path.exists(wav_path):
+        fs, x = wavfile.read(wav_path)
+    elif os.path.exists(dat_path):
+        fs = FS
+        x = np.fromfile(dat_path, dtype=np.int16)
+    else:
+        raise FileNotFoundError(f"Neither {rec}.wav nor {rec}.dat found in {os.path.join(root, sub)}")
     if fs != FS:
         x = signal.resample_poly(x.astype(np.float64), FS, fs)
     out = []
