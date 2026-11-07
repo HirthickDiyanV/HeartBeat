@@ -47,11 +47,11 @@ def segment(x, seg_len=SEG_LEN):
 
 
 # ----------------------------------------------------------------- feature pieces
-def sample_entropy(x, m=2, r_frac=0.2, decimate_to=500):
+def sample_entropy(x, m=2, r_frac=0.2, decimate_to=None):
     """Sample entropy with Chebyshev distance and tolerance r = r_frac * std.
 
-    Segments are decimated to `decimate_to` Hz first to keep runtime reasonable
-    (the paper does not state this; set decimate_to=None for the full-rate value).
+    Computed at full sample rate (2 kHz) by default to match MATLAB's behaviour.
+    Set decimate_to=500 to trade accuracy for ~16x faster extraction.
     """
     if decimate_to and decimate_to < FS:
         x = signal.decimate(x, FS // decimate_to, zero_phase=True)
@@ -112,10 +112,11 @@ def _mel_filterbank(n_filters=26, n_fft=256, fmin=0.0, fmax=FS / 2):
 _FB = _mel_filterbank()
 
 
-def mfcc_mean(x, n_mfcc=13, win_ms=25, hop_ms=10, n_fft=256, skip_c0=True):
+def mfcc_mean(x, n_mfcc=13, win_ms=25, hop_ms=10, n_fft=256, skip_c0=False):
     """13 MFCCs per 25 ms Hamming frame (10 ms hop), DCT of log-Mel energies (Eq. 3),
-    averaged over all frames of the segment. MFCC1..13 = DCT coefficients 1..13
-    (c0 skipped) -- the paper's naming implies this; set skip_c0=False for c0..c12."""
+    averaged over all frames of the segment.  MATLAB's `mfcc()` returns c0..c12 by
+    default (13 coefficients including the 0th log-energy term), so skip_c0=False
+    matches that convention.  MFCC1..13 now correspond to DCT coefficients c0..c12."""
     win, hop = int(FS * win_ms / 1000), int(FS * hop_ms / 1000)
     frames = np.lib.stride_tricks.sliding_window_view(x, win)[::hop] * np.hamming(win)
     spec = np.abs(np.fft.rfft(frames, n=n_fft, axis=1)) ** 2

@@ -32,14 +32,17 @@ Smoke test without the real data: `python make_synthetic.py synthetic_data`, the
 Outputs per experiment: `*_cv.csv` (mean/SD/CI), `*_test.csv` (held-out), `exp3_all_27_atest.csv`.
 
 ## Choices the paper leaves open (my assumptions)
-- MFCC: 26 Mel filters, 256-point FFT, DCT coefficients 1-13 (c0 dropped, `skip_c0=False` to keep it).
-- Sample entropy: m=2, r=0.2·std, computed after decimating the segment to 500 Hz for speed
-  (`decimate_to=None` for full rate). Spectral entropy is normalised to [0, 1].
+- MFCC: 26 Mel filters, 256-point FFT, DCT coefficients c0-c12 (matching MATLAB's default `mfcc()`).
+  Set `skip_c0=True` in `mfcc_mean()` to drop c0 and keep c1-c13 instead.
+- Sample entropy: m=2, r=0.2·std, computed at the full 2 kHz sample rate to match MATLAB.
+  Set `decimate_to=500` in `sample_entropy()` for ~16× faster extraction at the cost of accuracy.
 - PSD: Welch, 1024-point windows, restricted to ≤256 Hz; DFR = peak power / total power in band.
 - Fine/Medium RBF use MATLAB's kernel scales (√P/4, √P) converted to gamma; polynomial SVMs use gamma="scale".
-- Weighted KNN uses inverse-squared distance weights; AdaBoost uses depth-1 trees; RUSBoost needs `imbalanced-learn`.
+- Weighted KNN uses inverse-distance weights (MATLAB's default); AdaBoost uses depth-1 trees; RUSBoost needs `imbalanced-learn`.
 - Final held-out numbers come from refitting each model on the full 90% pool.
-- Segments from one recording always stay in the same fold/split (the paper's leakage rule).
+- Cross-validation defaults to **recording-level grouped folds**; pass `--no-group` to use standard
+  segment-level stratified CV (which matches MATLAB Classification Learner's default behaviour and
+  produces numbers closest to the paper).
 
 ## Expect differences
 Exact figures (e.g. KNN Fine 0.944 CV / 0.955 test) depend on the random split and on the choices above,

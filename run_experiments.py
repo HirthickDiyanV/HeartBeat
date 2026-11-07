@@ -13,7 +13,8 @@ import numpy as np
 import pandas as pd
 from scipy import stats
 from sklearn.base import clone
-from sklearn.model_selection import StratifiedGroupKFold, GroupShuffleSplit
+from sklearn.model_selection import (StratifiedGroupKFold, StratifiedKFold,
+                                     GroupShuffleSplit)
 from sklearn.metrics import (accuracy_score, precision_score, recall_score, f1_score,
                              roc_auc_score, average_precision_score, matthews_corrcoef,
                              cohen_kappa_score, brier_score_loss, confusion_matrix,
@@ -82,18 +83,30 @@ def recording_level_split(df, test_size=0.1, seed=SEED):
     return df[~is_test].reset_index(drop=True), df[is_test].reset_index(drop=True)
 
 
-def grouped_cv(model, X, y, groups, k, seed=SEED):
-    """k-fold stratified CV with whole recordings assigned to a single fold."""
-    skf = StratifiedGroupKFold(n_splits=k, shuffle=True, random_state=seed)
+def grouped_cv(model, X, y, groups, k, seed=SEED, use_groups=True):
+    """k-fold stratified CV.
+
+    If use_groups=True (default), whole recordings are assigned to a single fold
+    (StratifiedGroupKFold).  Set use_groups=False for standard segment-level
+    StratifiedKFold, which matches MATLAB Classification Learner's default
+    behaviour and eliminates the recording-level leakage gap.
+    """
+    if use_groups:
+        splitter = StratifiedGroupKFold(n_splits=k, shuffle=True, random_state=seed)
+        splits = splitter.split(X, y, groups)
+    else:
+        splitter = StratifiedKFold(n_splits=k, shuffle=True, random_state=seed)
+        splits = splitter.split(X, y)
     rows = []
-    for tr, va in skf.split(X, y, groups):
+    for tr, va in splits:
         m = clone(model).fit(X[tr], y[tr])
         rows.append(compute_metrics(y[va], m.predict(X[va]), scores(m, X[va])))
     return pd.DataFrame(rows)
 
 
 # ----------------------------------------------------------------- one experiment
-def run_experiment(name, cols, train, test, outdir, do_atest=False, only=None, k_folds=10):
+def run_experiment(name, cols, train, test, outdir, do_atest=False, only=None,
+                   k_folds=10, use_groups=True):
     Xtr, ytr, gtr = train[cols].values, train.label.values, train.recording.values
     Xte, yte = test[cols].values, test.label.values
     models = make_models(len(cols), SEED)
@@ -103,7 +116,7 @@ def run_experiment(name, cols, train, test, outdir, do_atest=False, only=None, k
     cv_rows, test_rows, atest_rows, fitted = [], [], [], {}
     for mname, model in models.items():
         print(f"[{name}] {mname}", flush=True)
-        folds = grouped_cv(model, Xtr, ytr, gtr, k_folds)
+        folds = grouped_cv(model, Xtr, ytr, gtr, k_folds, use_groups=use_groups)
         row = {"model": mname}
         for met in folds.columns:
             m, sd, lo, hi = mean_sd_ci(folds[met])
@@ -116,7 +129,9 @@ def run_experiment(name, cols, train, test, outdir, do_atest=False, only=None, k
         fitted[mname] = (pred, sc)
 
         if do_atest:                                            # A-Test, k = 2..10 (Eqs. 4-5)
-            accs = [grouped_cv(model, Xtr, ytr, gtr, k)["acc"].mean() for k in range(2, 11)]
+            accs = [grouped_cv(model, Xtr, ytr, gtr, k,
+                              use_groups=use_groups)["acc"].mean()
+                    for k in range(2, 11)]
             atest_rows.append({"model": mname, "mean_acc": np.mean(accs), "sd": np.std(accs, ddof=1),
                                "min_acc": np.min(accs), "max_acc": np.max(accs),
                                "range": np.ptp(accs), "mean_error": np.mean(1 - np.array(accs))})
@@ -129,8 +144,9 @@ def run_experiment(name, cols, train, test, outdir, do_atest=False, only=None, k
         pd.DataFrame(atest_rows).sort_values("mean_acc", ascending=False).to_csv(
             os.path.join(outdir, f"{name}_atest.csv"), index=False)
 
-    summary = cv[["model", "acc_mean", "acc_sd", "f1_mean", "roc_auc_mean"]].merge(
-        te[["model", "acc"]].rename(columns={"acc": "test_acc"}), on="model")
+    summary = cv[["model", "acc_mean", "acc_sd", "weighted_f1_mean", "f1_mean", "roc_auc_mean"]].merge(
+        te[["model", "acc", "weighted_f1"]].rename(
+            columns={"acc": "test_acc", "weighted_f1": "test_wf1"}), on="model")
     print(f"\n=== {name} ===\n{summary.round(3).to_string(index=False)}\n")
     return fitted, final_importance(models, Xtr, ytr, cols), summary
 
@@ -212,6 +228,8 @@ def main():
     r.add_argument("--models", nargs="*", default=None, help="subset of model names (debug)")
     r.add_argument("--folds", type=int, default=10)
     r.add_argument("--no-atest", action="store_true")
+    r.add_argument("--no-group", action="store_true",
+                   help="segment-level CV (MATLAB default) instead of recording-grouped CV")
     a = ap.parse_args()
 
     if a.cmd == "extract":
@@ -229,7 +247,8 @@ def main():
     for name, cols in EXPERIMENTS.items():
         fitted, imp, _ = run_experiment(name, cols, train, test, a.out,
                                         do_atest=(name == "exp3_all_27" and not a.no_atest),
-                                        only=a.models, k_folds=a.folds)
+                                        only=a.models, k_folds=a.folds,
+                                        use_groups=not a.no_group)
         if name == "exp3_all_27":
             make_figures(fitted, test.label.values, imp, df[F.EXP3_FEATURES], a.out)
     print("done ->", a.out)

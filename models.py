@@ -24,7 +24,7 @@ def make_models(n_features, seed=42):
     # Fine RBF: s = sqrt(P)/4 ; Medium RBF: s = sqrt(P)
     models = {
         "KNN Fine":      KNeighborsClassifier(n_neighbors=1),
-        "KNN Weighted":  KNeighborsClassifier(n_neighbors=10, weights=_inv_sq),
+        "KNN Weighted":  KNeighborsClassifier(n_neighbors=10, weights="distance"),
         "KNN Medium":    KNeighborsClassifier(n_neighbors=10),
         "KNN Cosine":    KNeighborsClassifier(n_neighbors=10, metric="cosine", algorithm="brute"),
         "KNN Coarse":    KNeighborsClassifier(n_neighbors=100),
